@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>本地图片相似检索</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .container {
+            margin-top: 20px;
+        }
+
+        .upload-area {
+            margin-bottom: 20px;
+            padding: 20px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+        }
+
+        #imagePreview {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .controls {
+            margin: 10px 0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        #topN {
+            width: 60px;
+            padding: 8px;
+        }
+
+        .result-area {
+            margin-top: 30px;
+        }
+
+        .similar-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .similar-item {
+            width: 180px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .similar-img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .similar-info {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .loading {
+            display: none;
+            color: #007bff;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>本地图片相似检索系统</h1>
+    <div class="container">
+        <!-- 上传区域 -->
+        <div class="upload-area">
+            <h3>步骤1：上传待检索图片</h3>
+            <input type="file" id="imageUpload" accept="image/*">
+            <div id="imagePreviewContainer">
+                <img id="imagePreview" alt="预览图">
+            </div>
+        </div>
+
+        <!-- 控制区域 -->
+        <div class="controls">
+            <h3>步骤2：设置参数并检索</h3>
+            <div>
+                返回相似图片数量：
+                <input type="number" id="topN" value="10" min="1" max="50">
+            </div>
+            <button onclick="searchSimilar()">开始检索</button>
+            <div class="loading" id="loading">正在检索中，请稍候...</div>
+        </div>
+
+        <!-- 结果区域 -->
+        <div class="result-area">
+            <h3>步骤3：检索结果（距离越小越相似）</h3>
+            <div class="similar-list" id="resultList"></div>
+        </div>
+    </div>
+
+    <script>
+        // 预览上传的图片
+        const imageUpload = document.getElementById('imageUpload');
+        const imagePreview = document.getElementById('imagePreview');
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    imagePreview.src = ev.target.result;
+                    imagePreview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 相似检索核心函数
+        function searchSimilar() {
+            const file = imageUpload.files[0];
+            if (!file) {
+                alert('请先上传图片！');
+                return;
+            }
+
+            // 显示加载状态
+            const loading = document.getElementById('loading');
+            const resultList = document.getElementById('resultList');
+            loading.style.display = 'block';
+            resultList.innerHTML = '';  // 清空之前的结果
+
+            // 构建表单数据
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('top_n', document.getElementById('topN').value);
+
+            // 调用本地后端接口
+            fetch('http://localhost:5000/search', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    loading.style.display = 'none';
+                    if (data.code === 200) {
+                        // 渲染结果
+                        data.data.forEach(item => {
+                            const itemDiv = document.createElement('div');
+                            itemDiv.className = 'similar-item';
+                            itemDiv.innerHTML = `
+                            <img class="similar-img" src="${item.image_url}" alt="相似图片">
+                            <div class="similar-info">
+                                <p>相似度距离：${item.distance.toFixed(4)}</p>
+                                <p>本地路径：${item.local_path}</p>
+                            </div>
+                        `;
+                            resultList.appendChild(itemDiv);
+                        });
+                    } else {
+                        alert('检索失败：' + data.error);
+                    }
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    alert('接口调用失败：' + error);
+                });
+        }
+    </script>
+</body>
+
+</html>

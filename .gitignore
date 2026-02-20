@@ -1,0 +1,9 @@
+# .gitignore 文件内容
+# 排除数据文件夹（根据你的实际文件夹名修改）
+images_001/
+nih_features_db/
+
+# 可选：排除Python缓存、日志等冗余文件
+__pycache__/
+*.pyc
+*.log

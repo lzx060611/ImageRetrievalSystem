@@ -1,0 +1,9 @@
+# requirements.txt
+flask==2.3.3
+faiss-cpu==1.8.0
+Pillow==10.0.1
+pydicom==2.4.4  # 若处理DICOM医学图像需安装
+requests==2.31.0
+flask-cors==4.0.0  # 解决前端跨域问题
+open_clip_torch==2.24.0  # 新增：适配你的open_clip加载方式
+tqdm==4.66.1             # 可选：进度条
