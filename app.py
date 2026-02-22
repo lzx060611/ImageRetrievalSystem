@@ -1,4 +1,4 @@
-# app.py
+﻿# app.py
 import os
 import numpy as np
 import faiss
@@ -17,18 +17,18 @@ app = Flask(__name__, static_folder="./")
 CORS(app)  # 允许跨域请求（本地前端访问后端必须加）
 
 # ----------------------
-# 2. 加载FAISS索引和图片路径（你刚生成的文件）
+# 2. 加载FAISS二值索引和图片路径
 # ----------------------
 try:
-    # 加载FAISS索引文件（用于相似检索）
-    index = faiss.read_index("features.index")  
+    # 加载FAISS二值索引文件（用于相似检索）
+    index = faiss.read_index_binary("nih_hash_64bit.index")  
     # 加载图片路径清单（索引和路径一一对应）
     with open("image_paths.txt", "r", encoding="utf-8") as f:
         image_paths = [line.strip() for line in f.readlines()]
-    print(f"✅ 索引加载成功：共 {len(image_paths)} 张图片，索引中 {index.ntotal} 个特征")
+    print(f"✅ 二值索引加载成功：共 {len(image_paths)} 张图片，索引中 {index.ntotal} 个哈希码")
 except FileNotFoundError:
     # 如果没找到文件，提示先运行load_features_to_faiss.py
-    raise ValueError("⚠️ 未找到FAISS索引文件！请先运行 load_features_to_faiss.py")
+    raise ValueError("⚠️ 未找到FAISS二值索引文件！请先运行 load_features_to_faiss.py")
 
 # ----------------------
 # 3. 静态文件路由：让前端能访问你的本地图片
@@ -54,47 +54,70 @@ def search_similar():
             return jsonify({"error": "图片文件名不能为空！"}), 400
 
         # 步骤2：加载上传的图片并转为PIL格式
-        # io.BytesIO(file.read())：把上传的二进制文件转为内存流
-        # Image.open(...)：打开图片并转为RGB格式（统一格式，避免模型报错）
         image = Image.open(io.BytesIO(file.read())).convert("RGB")
+        print(f"✅ 图片加载成功：{file.filename}")
 
-        # 步骤3：提取上传图片的特征（调用model.py中的函数）
-        query_feat = extract_image_feature(image)  # 得到(256,)的numpy数组
-        query_feat = np.expand_dims(query_feat, axis=0)  # 增加batch维度：(256,) → (1,256)（FAISS要求）
+        # 步骤3：提取上传图片的哈希码（调用model.py中的函数）
+        print("🔧 开始提取哈希码...")
+        query_code = extract_image_feature(image)  # 得到(64,)的0/1数组
+        print(f"✅ 哈希码提取成功，形状：{query_code.shape}，类型：{query_code.dtype}")
+        
+        # 增加batch维度并执行位压缩
+        query_code = np.expand_dims(query_code, axis=0)
+        print(f"🔧 增加batch维度后：{query_code.shape}")
+        
+        # 确保数据类型为uint8
+        query_code = query_code.astype(np.uint8)
+        print(f"🔧 类型转换后：{query_code.dtype}")
+        
+        # 位压缩
+        packed_query = np.packbits(query_code, axis=1)
+        print(f"✅ 位压缩完成，形状：{packed_query.shape}")
 
         # 步骤4：获取前端指定的返回数量（默认10张，可自定义）
         top_n = int(request.form.get('top_n', 10))  # 从表单中取top_n参数，默认10
         # 限制最大返回数量（避免性能问题）
         top_n = min(top_n, 50)  
+        print(f"🔧 检索参数：top_n={top_n}")
 
-        # 步骤5：FAISS相似检索
-        # distances：每个相似图片的距离（越小越相似），indices：相似图片的索引
-        distances, indices = index.search(query_feat, top_n)  
+        # 步骤5：FAISS相似检索（使用汉明距离）
+        print("🔍 开始FAISS检索...")
+        # distances：每个相似图片的汉明距离（越小越相似），indices：相似图片的索引
+        distances, indices = index.search(packed_query, top_n)  
+        print(f"✅ 检索完成，距离形状：{distances.shape}，索引形状：{indices.shape}")
 
         # 步骤6：整理检索结果（供前端显示）
         results = []
+        print("📋 整理检索结果...")
         # 遍历检索结果（indices[0]是检索到的图片索引列表）
         for i, idx in enumerate(indices[0]):
             img_local_path = image_paths[idx]  # 获取本地图片路径
             # 转为前端能访问的URL（拼接本地服务器地址）
             img_url = f"http://localhost:5000/{img_local_path}"
-            # 整理单条结果：URL、距离（相似度）、本地路径
+            # 整理单条结果：URL、汉明距离（相似度）、本地路径
             results.append({
                 "image_url": img_url,  # 前端显示图片用
-                "distance": float(distances[0][i]),  # 距离越小越相似
+                "distance": int(distances[0][i]),  # 汉明距离，越小越相似
                 "local_path": img_local_path  # 供调试查看
             })
+            if i < 3:  # 只打印前3个结果
+                print(f"  结果{i+1}: 距离={int(distances[0][i])}, 路径={img_local_path}")
 
         # 步骤7：返回JSON格式结果（前端能解析）
+        print(f"✅ 结果整理完成，共 {len(results)} 个结果")
         return jsonify({
             "code": 200,  # 200是HTTP成功码
             "msg": "检索成功",
             "data": results  # 核心结果列表
         })
 
-    # 捕获异常，返回错误信息（方便调试）
+    # 捕获异常，返回详细错误信息（方便调试）
     except Exception as e:
-        return jsonify({"error": f"检索失败：{str(e)}"}), 500  # 500是服务器错误码
+        error_msg = f"检索失败：{str(e)}"
+        print(f"❌ 错误：{error_msg}")
+        import traceback
+        traceback.print_exc()  # 打印详细的错误堆栈
+        return jsonify({"error": error_msg}), 500  # 500是服务器错误码
 
 # ----------------------
 # 5. 前端页面路由：访问http://localhost:5000直接打开前端页面

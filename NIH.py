@@ -19,7 +19,7 @@ class NIH_dataset(Dataset):
         super().__init__()
         self.img_root=img_root
         self.transform=transform
-        with open(img_list,'r')as f:
+        with open(img_list,'r',encoding='utf-8')as f:
             self.img_names=[line.strip() for line in f]#每行是一个图像名
 
         if tag_path is not None:
