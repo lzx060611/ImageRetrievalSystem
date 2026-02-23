@@ -1,4 +1,4 @@
-# model.py
+﻿# model.py
 import os
 import torch
 import torch.nn as nn
@@ -18,11 +18,18 @@ MODEL_NAME = 'hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224'
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 二. 批量提取配置（根据你的数据集调整路径）
-IMG_ROOT = "./images_001/images"  # 你的图片根目录
-IMG_LIST = "images_001\\train_val_list.txt"  # 你的图片列表文件
+Is_Test=True#是否使用测试集
+if Is_Test:
+    IMG_ROOT = "./images_001/test_image"  # 你的测试图片(前500)根目录
+    IMG_LIST = "images_001\\test_list.txt"  # 你的测试图片列表文件
+else:
+    IMG_ROOT = "./images_001/images"  # 你的图片根目录
+    IMG_LIST = "images_001\\train_val_list.txt"  # 你的图片列表文件
 BATCH_SIZE = 50                       # 你的批次大小
 SAVE_DIR = "nih_features_db"          # 特征保存文件夹
-SAVE_PATH = os.path.join(SAVE_DIR, "nih_biomedclip_features.pt")  # 特征保存路径
+
+
+
 #三、加载模型
 # ===================== HashAdapter 类 =====================
 class HashAdapter(nn.Module):
@@ -61,6 +68,17 @@ def load_model():
     
     # 创建哈希适配器
     hash_adapter = HashAdapter(input_dim=512, output_dim=64)
+    
+    # 尝试加载已保存的HashAdapter权重
+    SAVE_PATH = os.path.join("nih_features_db", "nih_biomedclip_hash_64bit.pt")
+    if os.path.exists(SAVE_PATH):
+        try:
+            features_db = torch.load(SAVE_PATH)
+            if "hash_adapter_weight" in features_db:
+                hash_adapter.projection.weight.data = features_db["hash_adapter_weight"].to(DEVICE)
+                print(f"✅ HashAdapter权重已加载，使用与批量提取相同的权重")
+        except Exception as e:
+            print(f"⚠️  加载HashAdapter权重失败，使用新的正交初始化权重: {e}")
     
     # 模型配置（评估模式+设备分配）
     model.eval()
@@ -166,18 +184,20 @@ def batch_extract_features():
     all_binary_codes = torch.cat(all_binary_codes, dim=0)
     print(f"\n📊 提取完成 | 哈希码形状：{all_binary_codes.shape} | 有效图片数：{len(all_paths)}")
 
-    # 5. 保存哈希码和路径
+    # 5. 保存哈希码、路径和HashAdapter权重
     os.makedirs(SAVE_DIR, exist_ok=True)  # 创建保存文件夹
     # 更新保存路径和键名
     SAVE_PATH = os.path.join(SAVE_DIR, "nih_biomedclip_hash_64bit.pt")
     features_db = {
         "binary_codes": all_binary_codes,  # 二值哈希码 (N, 64)
-        "image_paths": all_paths   # 对应图像路径列表
+        "image_paths": all_paths,   # 对应图像路径列表
+        "hash_adapter_weight": hash_adapter.projection.weight.cpu()  # 保存HashAdapter权重
     }
     torch.save(features_db, SAVE_PATH)
 
     print(f"✅ 哈希特征数据库已保存到：{SAVE_PATH}")
     print(f"哈希码形状：{all_binary_codes.shape}，包含 {len(all_paths)} 张图像")
+    print(f"✅ HashAdapter权重已保存，将在后续检索中使用相同权重")
 
 # ===================== 一键运行批量提取（直接执行model.py即可）=====================
 if __name__ == "__main__":
